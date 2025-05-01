@@ -101,9 +101,9 @@ def ssa(A: np.array, eps: float, maxiter: int = 20, mach_eps: float = 1e-5, grad
     if grad:
         _, del_s, del_A, Q, P = fAs(A, s)
         if ret_QP:
-            return s, 2 * Q @ P, Q, P # NOTE: was missing a 2.0 heres, NOTE: then I forgot the trace term as well
+            return s, -2.0 * del_A / del_s, Q, P # NOTE: was missing a 2.0 heres, NOTE: then I forgot the trace term as well
         else:
-            return s, 2 * Q @ P # NOTE: was missing a 2.0 heres, NOTE: then I forgot the trace term as well
+            return s, -2.0 * del_A / del_s # NOTE: was missing a 2.0 heres, NOTE: then I forgot the trace term as well
 
     return (s,)
 
