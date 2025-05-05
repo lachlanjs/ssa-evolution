@@ -139,6 +139,7 @@ class SHPM(Manifold):
         # place the upper diagonal  
         
         
+        
         return P[0] @ T @ P[0].T
     
     
