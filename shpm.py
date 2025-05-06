@@ -47,51 +47,41 @@ class SHPM(Manifold):
         name = f"Hurwitz-Schur Product Manifold of dimension {n}"
         dimension = n**2 + 1
 
-        self.stief_m = Stiefel(n, n)
-        self.T_D_gra_ad_pm = Grassmann(2, 1, n//2)        
-        self.T_D_euc_ad_pm = Euclidean((n//2,))
-        self.T_D_euc_bc_pm = Euclidean((n//2, 2))
+        self.Q_stief_m = Stiefel(n, n)        
+        self.T_D_euc_pm = Euclidean(n//2,2) # these guys need the exp(-x) treatment
         self.T_U_euc_pm = Product([
-            Euclidean((n-2-i,))
-            for i in range(n-2)
+            Euclidean(n-1-i,)
+            for i in range(n-1)
         ])  
 
         super().__init__(name, dimension)    
     
     def random_point(self):
         return (
-            self.stief.random_point(),
-            self.T_D_gra_ad_pm.random_point(),
-            self.T_D_euc_ad_pm.random_point(),
-            self.T_D_euc_bc_pm.random_point(),
+            self.Q_stief_m.random_point(),
+            self.T_D_euc_pm.random_point(),
             self.T_U_euc_pm.random_point()
         )
     
     def random_tangent_vector(self, P):
         return (
-            self.stief.random_tangent_vector(P[0]),
-            self.T_D_gra_ad_pm.random_tangent_vector(P[1]),
-            self.T_D_euc_ad_pm.random_tangent_vector(P[2]),
-            self.T_D_euc_bc_pm.random_tangent_vector(P[3]),
-            self.T_U_euc_pm.random_tangent_vector(P[4])
+            self.Q_stief_m.random_tangent_vector(P[0]),            
+            self.T_D_euc_pm.random_tangent_vector(P[1]),
+            self.T_U_euc_pm.random_tangent_vector(P[2])
         )
 
     def exp(self, P: tuple[Manifold], T: tuple):
         return (
-            self.stief_m.exp(P[0], T[0]),
-            self.T_D_gra_ad_pm.exp(P[1], T[1]),
-            self.T_D_euc_ad_pm.exp(P[2], T[2]),
-            self.T_D_euc_bc_pm.exp(P[3], T[3]),
-            self.T_U_euc_pm.exp(P[4], T[4])
+            self.Q_stief_m.exp(P[0], T[0]),            
+            self.T_D_euc_pm.exp(P[1], T[1]),
+            self.T_U_euc_pm.exp(P[2], T[2])
         )
     
     def mutate(self, P: tuple[Manifold], mag: float):
         return self.exp(P, (
-            self.stief_m.random_tangent_vector(P[0]) * mag,
-            self.T_D_gra_ad_pm.random_tangent_vector(P[1]) * mag,
-            self.T_D_euc_ad_pm.random_tangent_vector(P[2]) * mag,
-            self.T_D_euc_bc_pm.random_tangent_vector(P[3]) * mag,
-            self.T_U_euc_pm.random_tangent_vector(P[4] * mag)
+            self.Q_stief_m.random_tangent_vector(P[0]) * mag,            
+            self.T_D_euc_pm.random_tangent_vector(P[1]) * mag,
+            self.T_U_euc_pm.random_tangent_vector(P[2]) * mag            
         ))
     
     def crossover(self, P_1: tuple[Manifold], P_2: tuple[Manifold]):     
@@ -104,11 +94,9 @@ class SHPM(Manifold):
         """
         
         return (
-            P_1[0] @ P_2[0],
-            [normalise(0.5 * (g1 + g2) if np.dot(g1, g2) > 0 else 0.5 * (g1 - g2)) for g1, g2 in zip(P_1[1], P_2[1])],
-            self.T_D_euc_ad_pm.pair_mean(P_1[2], P_2[2]),
-            self.T_D_euc_bc_pm.pair_mean(P_1[3], P_2[3]),
-            self.T_U_euc_pm.pair_mean(P_1[4], P_2[4])
+            P_1[0] @ P_2[0],            
+            self.T_D_euc.pair_mean(P_1[1], P_2[1]),
+            self.T_U_euc.pair_mean(P_1[2], P_2[2]),            
         )
     
     def assemble(self, P):
@@ -121,25 +109,41 @@ class SHPM(Manifold):
         n = self.n
         T = np.zeros((n, n))
 
-        # convert the Grassmann points
-        ## ensure that they are facing in the correct half of the plane (a < -d)
-        for idx, p_gra in enumerate(P[1]):
-            if p_gra[0] >= -p_gra[1]:
-                P[1][idx] = -1.0 * np.array(p_gra[0], p_gra[1])
-        
-        # place (a, d) and (b, c) on diagonal:
+        # place the diagonal components
         for d_idx in range(0, n, 2):
-            # (a, d)
-            T[d_idx, d_idx] = P[1][d_idx//2][0]         * P[2][d_idx//2]
-            T[d_idx + 1, d_idx + 1] = P[1][d_idx//2][1] * P[2][d_idx//2]
-            # (b, c)
-            T[d_idx + 1, d_idx] = P[2][d_idx//2][0] * P[2][d_idx//2]
-            T[d_idx, d_idx + 1] = P[2][d_idx//2][0] * P[2][d_idx//2]
-
-        # place the upper diagonal  
-        
-        
+            T[d_idx, d_idx + 1] = -np.exp(P[1][d_idx//2, 0])
+            T[d_idx + 1, d_idx + 1] = -np.exp(P[1][(d_idx//2), 1])
+            
+        # place the strict upper triangular part
+        for start_idx in range(1, n):
+            for d_idx in range(n - start_idx):
+                T[start_idx + d_idx][d_idx] = P[2][start_idx - 1][d_idx]            
         
         return P[0] @ T @ P[0].T
     
+    # abstract method fun...
+    def inner_product(self, P, T_A, T_B):
+
+        # sum of the inner products in the product manifold:
+        g_0 = self.Q_stief_m.inner_product(P[0], T_A[0], T_B[0])
+        g_1 = self.T_D_euc_pm.inner_product(P[1], T_A[1], T_B[1])
+        g_2 = self.T_U_euc_pm.inner_product(P[2], T_A[2], T_B[2])
+
+        return g_0 + g_1 + g_2
     
+    def norm(self, P, T):
+        return self.inner_product(P, T, T)
+    
+    def projection(self, P, V):
+        return (
+            self.Q_stief_m.projection(P[0], V[0]),
+            self.T_D_euc_pm.projection(P[1], V[1]),
+            self.T_U_euc_pm.projection(P[2], V[2])
+        )
+    
+    def zero_vector(self, P):
+        return (
+            self.Q_stief_m.projection(P[0]),
+            self.T_D_euc_pm.projection(P[1]),
+            self.T_U_euc_pm.projection(P[2])
+        )
