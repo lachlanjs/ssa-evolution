@@ -78,6 +78,17 @@ class SHPM(Manifold):
         )
     
     def mutate(self, P: tuple[Manifold], mag: float):
+        """ 
+
+        Args:
+            P (tuple[Manifold]): _description_
+            mag (float): _description_
+
+        Returns:
+            _type_: _description_
+        """
+
+        # NOTE: DON"T FORGET POSSIBLE PERMUTATION OF Q
         return self.exp(P, (
             self.Q_stief_m.random_tangent_vector(P[0]) * mag,            
             self.T_D_euc_pm.random_tangent_vector(P[1]) * mag,
