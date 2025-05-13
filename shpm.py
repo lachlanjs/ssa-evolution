@@ -7,34 +7,34 @@ import pymanopt
 from pymanopt.manifolds import Product, Stiefel, Grassmann, Euclidean
 from pymanopt.manifolds.manifold import Manifold
 
-def normalise(x: np.array):
+class SHHessComplex2x2(Manifold):
+    """ 
+    Matrices of the form:
+        | alpha, beta  |
+        | gamma, alpha |
+    where alpha < 0 and beta * gamma < 0    
+    """
 
-    return x / np.linalg.norm(x)
+    def __init__(self):
 
-def grassmann_average(x_1: np.array, x_2: np.array):
+        return
+    
 
-    a = 0.5 * (x_1 + x_2)
+class SHHess(Manifold):
 
-    a_norm = np.linalg.norm(a)
+    def __init__(self):
 
-    if a_norm < 1e-6:
-        # avoid numerical instability from the upcoming division
-        return np.array([x_1[1], -x_1[0]])
+        self.obo_idxs = []
+        self.tbt_idxs = []
 
-    return a / a_norm
+        return
+    
+    
+    
 
 class SHPM(Manifold):
 
-    """ Schur-Hurwitz Product Manifold
-
-        Points are represented as tuples:
-            (Q, T_D_gra_ad, T_D_euc_ad, T_D_euc_bc, T_U_euc)
-        Tangent Vectors are represented analoously
-
-        The Schur-Hurwitz Product Manifold is defined as a product
-        of Stiefel, Grassmann and Euclidean manifolds, designed to 
-        (over)-parameterise the space of matrices with eigenvalues
-        whose real part is < 0.0
+    """ Schur-Hurwitz Product Manifold        
     """    
 
     def __init__(self, n: int):
@@ -49,10 +49,11 @@ class SHPM(Manifold):
 
         self.Q_stief_m = Stiefel(n, n)        
         self.T_D_euc_pm = Euclidean(n//2,2) # these guys need the exp(-x) treatment
+        self.T_D_euc_pm
         self.T_U_euc_pm = Product([
             Euclidean(n-1-i,)
             for i in range(n-1)
-        ])  
+        ])
 
         super().__init__(name, dimension)    
     
