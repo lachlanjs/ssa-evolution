@@ -16,8 +16,8 @@ def evo_alg(
         m (int): the number of parents (those selected for the next generation)
         l (int): the number of offspring (added to the pool in the next generation so that there are always m+l in total)
         objective (callable): the objective function to be minimized, it is assumed that 0.0 is the minimum
-        mutation (callable): the mutation operator. takes one candidate and produces a new one which is slightly mutated
-        crossover (callable): the crossover operator
+        mutation (callable): the mutation operator. takes one candidate and a magnitude and produces a new one which is slightly mutated
+        crossover (callable): the crossover operator. takes two candidates and produces a new one using their information
         s (float): the mutation step size
         c (float): the crossover rate (between 0 and 1) (represents the probability at which an offspring will be made using crossover)        
         maxiter (int): the maximum number of iterations to compute

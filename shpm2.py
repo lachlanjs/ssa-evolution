@@ -254,7 +254,7 @@ class Hberg(Manifold):
                     
         return p
 
-    def crossover(self, p_a: tuple[Manifold], p_b: tuple[Manifold]):
+    def crossover(self, p_a: tuple[Manifold], p_b: tuple[Manifold], verbose: bool=False):
 
         HD_c = []
         d_idx = 0        
@@ -269,6 +269,7 @@ class Hberg(Manifold):
                 else:
                     HD_str.append(2)
                     HD_str.append(0)
+                    HD_idxs.append(hd_idx)
                     HD_idxs.append(hd_idx)
 
             return HD_str, HD_idxs
@@ -288,14 +289,14 @@ class Hberg(Manifold):
             elif HD_b_str[d_idx] == 0:
                 # have to pick a
                 HD_c.append(p_a[2][hd_a_idx])
-                d_idx += p_b[2][hd_a_idx][0]                 
+                d_idx += p_a[2][hd_a_idx][0]                 
             elif HD_a_str[d_idx] == 1 and HD_b_str[d_idx] == 1:
                 # take the mean
-                HD_c.append((1, 0.5 * (p_a[2][hd_a_idx][1] + p_b[2][hd_a_idx][1])))
+                HD_c.append((1, 0.5 * (p_a[2][hd_a_idx][1] + p_b[2][hd_b_idx][1])))
                 d_idx += 1                
             elif HD_a_str[d_idx] == 2 and HD_b_str[d_idx] == 2:
                 # take the mean
-                HD_c.append((2, 0.5 * (p_a[2][hd_a_idx][1] + p_b[2][hd_a_idx][1])))
+                HD_c.append((2, 0.5 * (p_a[2][hd_a_idx][1] + p_b[2][hd_b_idx][1])))
                 d_idx += 2                
             else:                    
                 # pick one at random
@@ -377,9 +378,9 @@ class SHPM(Manifold):
             if verbose: print(f"swapped: {idx_1} <-> {idx_2}")
 
             # switch em
-            q1 = p[0][:, idx_1]
-            p[0][:, idx_1] = p[0][:, idx_2]
-            p[0][:, idx_2] = q1            
+            q1 = np.copy(p[0][:, idx_1])
+            p[0][:, idx_1] = np.copy(p[0][:, idx_2])
+            p[0][:, idx_2] = q1
 
         p_H = self.hberg.mutate(p[1], mag, verbose)
 
@@ -387,8 +388,8 @@ class SHPM(Manifold):
     
     def crossover(self, p_a, p_b):
 
-        p_Q = p_a[0] @ p_b[0] if random() < self.crazy_xv_chance else p_a[0] if random() < 0.5 else p_b[0]                     
-        p_H = self.hberg.crossover(p_a[1], p_a[2])
+        p_Q = p_a[0] @ p_b[0] if random() < self.crazy_Q_xv_chance else p_a[0] if random() < 0.5 else p_b[0]                     
+        p_H = self.hberg.crossover(p_a[1], p_b[1])
 
         return (p_Q, p_H)
     
