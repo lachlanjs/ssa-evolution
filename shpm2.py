@@ -177,7 +177,7 @@ class Hberg(Manifold):
             [[p_hd[0], p_hd[1] + t_hd] for p_hd, t_hd in zip(p[2], t.t_HD)]
         )
     
-    def mutate(self, p, mag: float):
+    def mutate(self, p, mag: float, verbose: bool = False):
 
         # move slightly in the direction of a random tangent vector
         ## get a random tangent vector
@@ -199,6 +199,7 @@ class Hberg(Manifold):
             r_adj_idx = r_adj_idxs[idx_idx]
             if random() < self.HD_1x1_merge_chance:
                 # do the merge
+                if verbose: print("merged")
                 ## get the new values
                 d = np.abs(p[2][r_adj_idx][1][0] - p[2][r_adj_idx + 1][1][0])
 
@@ -236,6 +237,7 @@ class Hberg(Manifold):
                 continue
             
             if random() < self.HD_2x2_split_chance:
+                if verbose: print("split")
                 # splitty time
                 real_1 = hd[1][0] + 2.0 * (np.random.random() - 0.5) * mag
                 real_2 = hd[1][0] + 2.0 * (np.random.random() - 0.5) * mag
@@ -355,26 +357,33 @@ class SHPM(Manifold):
             self.hberg.random_point()
         )
     
+    def random_tangent_vector(self, p):
+        return (
+            self.stiefel.random_tangent_vector(p[0]),
+            self.hberg.random_tangent_vector(p[1])
+        )
+    
     def assemble(self, p):        
         return p[0] @ self.hberg.assemble(p[1]) @ p[0].T
     
-    def mutate(self, p, mag: float):
+    def mutate(self, p, mag: float, verbose: bool = False):
 
-        p[0] = self.stiefel.exp(p[0], self.stiefel.random_tangent_vector(p[0]) * random() * mag)
+        p_Q = self.stiefel.exp(p[0], self.stiefel.random_tangent_vector(p[0]) * random() * mag)
         # possible random permutation
         if random() < self.Q_swap_chance:
+
             # pick random indices without replacement:
-            idx_1, idx_2 = sample(range(self.n))
+            idx_1, idx_2 = sample(range(self.n), 2)
+            if verbose: print(f"swapped: {idx_1} <-> {idx_2}")
 
             # switch em
             q1 = p[0][:, idx_1]
             p[0][:, idx_1] = p[0][:, idx_2]
-            p[0][:, idx_2] = q1
-            
+            p[0][:, idx_2] = q1            
 
-        p[1] = self.hberg.mutate(p[1], mag)
+        p_H = self.hberg.mutate(p[1], mag, verbose)
 
-        return p
+        return (p_Q, p_H)
     
     def crossover(self, p_a, p_b):
 
@@ -382,4 +391,21 @@ class SHPM(Manifold):
         p_H = self.hberg.crossover(p_a[1], p_a[2])
 
         return (p_Q, p_H)
+    
+    # abstract method joy...    
+    def inner_product(self, p, t_a, t_b):
+
+        return
+    
+    def norm(self, p, t):
+
+        return
+    
+    def projection(self, p, v):
+
+        return
+    
+    def zero_vector(self, p):
+
+        return
 

@@ -3,7 +3,7 @@ import numpy as np
 from ssa import tangent_retract, sa, ssa
 
 
-def lds(A: np.array, x_0: np.array, dt: float = 0.01, beta: float=0.1, iters=20):
+def lds(A: np.array, x_0: np.array, dt: float = 0.01, iters=20):
 
     assert len(A.shape) == 2 and A.shape[0] == A.shape[1]
     assert len(x_0.shape) == 1
