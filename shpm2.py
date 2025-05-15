@@ -10,8 +10,15 @@ def rand_norm(n: int):
     v = np.random.normal(0.0, 1.0, size=(n,))    
     return v / np.linalg.norm(v)
 
+def posify(x):    
+    return np.where(x < 0, np.exp(x), x + 1)
+
 # CONSTANTS
 B_MERGE_MAG = 1.0
+MAX_EIG_SWAPS = 5
+MAX_Q_SWAPS = 5
+
+
 
 class HbergTangentVector(ndarraySequenceMixin):
 
@@ -86,17 +93,24 @@ class HbergTangentVector(ndarraySequenceMixin):
 class Hberg(Manifold):
 
     def __init__(self, 
-        n: int, 
-        HD_1x1_merge_chance: float = 0.1, 
-        HD_2x2_split_chance: float = 0.1
+        n: int,
+        UT_mut_mag: float = 1.0,
+        SD_mut_mag: float = 1.0,
+        HD_1x1_merge_chance: float = 0.15, 
+        HD_2x2_split_chance: float = 0.15,
+        HD_eig_swap_chance: float = 0.33,
+        HD_mut_mag: float = 1.0
     ):
 
         assert n > 0, "the dimensionality n should be positive"
 
         self.n = n
-
+        self.UT_mut_mag = UT_mut_mag
+        self.SD_mut_mag = SD_mut_mag
         self.HD_1x1_merge_chance = HD_1x1_merge_chance
         self.HD_2x2_split_chance = HD_2x2_split_chance
+        self.HD_eig_swap_chance = HD_eig_swap_chance
+        self.HD_mut_mag = HD_mut_mag
 
         self.UT = Product([Euclidean(n-i) for i in range(2, n)])
         self.SD = Euclidean(n-1)       
@@ -148,12 +162,12 @@ class Hberg(Manifold):
             
             if hd[0] == 1:  # real
                 # add eigenvalue to the diagonal
-                T[d_idx, d_idx] = -np.exp(hd[1])
+                T[d_idx, d_idx] = -posify(hd[1])
             else:           # complex
                 # ensure that the value opposite the superdiagonal is of opposite sign
-                T[d_idx, d_idx] = -np.exp(hd[1][0])
-                T[d_idx + 1, d_idx + 1] = -np.exp(hd[1][0])
-                T[d_idx + 1, d_idx] = -1 * np.sign(p[1][d_idx]) * np.exp(hd[1][1])                
+                T[d_idx, d_idx] = -posify(hd[1][0])
+                T[d_idx + 1, d_idx + 1] = -posify(hd[1][0])
+                T[d_idx + 1, d_idx] = -1 * np.sign(p[1][d_idx]) * posify(hd[1][1])                
 
             d_idx += hd[0]
 
@@ -182,7 +196,7 @@ class Hberg(Manifold):
         # move slightly in the direction of a random tangent vector
         ## get a random tangent vector
         ## rescale for fairness
-        t = self.random_tangent_vector(p) * np.random.random() * mag        
+        t = self.random_tangent_vector(p) * np.random.normal() * mag * self.HD_mut_mag   
         p = self.exp(p, t)
 
         # do stuff to the Hberg diagonal
@@ -204,7 +218,7 @@ class Hberg(Manifold):
                 d = np.abs(p[2][r_adj_idx][1][0] - p[2][r_adj_idx + 1][1][0])
 
                 a = 0.5 * (p[2][r_adj_idx][1][0] + p[2][r_adj_idx + 1][1][0])   # the real component
-                b = 2.0 * (np.random.random() - 0.5) * d                        # the other value
+                b = 2.0 * np.random.normal() * mag                              # the other value
 
                 ## change the information in the first one
                 p[2][r_adj_idx][0] = 2
@@ -239,8 +253,8 @@ class Hberg(Manifold):
             if random() < self.HD_2x2_split_chance:
                 if verbose: print("split")
                 # splitty time
-                real_1 = hd[1][0] + 2.0 * (np.random.random() - 0.5) * mag
-                real_2 = hd[1][0] + 2.0 * (np.random.random() - 0.5) * mag
+                real_1 = hd[1][0] + np.random.normal() * mag
+                real_2 = hd[1][0] + np.random.normal() * mag
                 
                 # change the information of the first
                 p[2][hd_idx] = [1, np.array([real_1])]
@@ -248,9 +262,17 @@ class Hberg(Manifold):
                 # insert the second
                 p[2].insert(hd_idx + 1, [1, np.array([real_2])])
     
-                hd_idx += 1 # NOTE: I think                
+                hd_idx += 1 # NOTE: I think...              
 
             hd_idx += 1
+
+        ## spectrum swapping
+        for _ in range(MAX_EIG_SWAPS):
+            if random() < self.HD_eig_swap_chance:            
+                # pick idxs
+                idx_1, idx_2 = sample(range(self.n), 2)
+                p[2][idx_1], p[2][idx_2] = p[2][idx_2], p[2][idx_1]                        
+            else: break
                     
         return p
 
@@ -340,15 +362,22 @@ CRAZY_CROSSOVER_CHANCE = 0.1
 
 class SHPM(Manifold):
 
-    def __init__(self, n: int, Q_swap_chance: float=0.1, crazy_Q_xv_chance: float = 0.05):
+    def __init__(self, 
+        n: int, 
+        Q_mut_mag: float=1.0,
+        Q_swap_chance: float=0.1, 
+        crazy_Q_xv_chance: float = 0.05,
+        **hberg_kwargs
+    ):
 
         assert n > 0, "the dimensionality n should be positive"
         self.n = n
+        self.Q_mut_mag = Q_mut_mag
         self.Q_swap_chance = Q_swap_chance
         self.crazy_Q_xv_chance = crazy_Q_xv_chance
 
         self.stiefel = Stiefel(n, n)
-        self.hberg = Hberg(n)        
+        self.hberg = Hberg(n, **hberg_kwargs)
 
         return
     
@@ -369,18 +398,20 @@ class SHPM(Manifold):
     
     def mutate(self, p, mag: float, verbose: bool = False):
 
-        p_Q = self.stiefel.exp(p[0], self.stiefel.random_tangent_vector(p[0]) * random() * mag)
+        p_Q = self.stiefel.exp(p[0], 
+            self.stiefel.random_tangent_vector(p[0]) * np.random.normal() * mag * self.Q_mut_mag
+        )
+
         # possible random permutation
-        if random() < self.Q_swap_chance:
+        for _ in range(MAX_Q_SWAPS):
+            if random() < self.Q_swap_chance:
 
-            # pick random indices without replacement:
-            idx_1, idx_2 = sample(range(self.n), 2)
-            if verbose: print(f"swapped: {idx_1} <-> {idx_2}")
-
-            # switch em
-            q1 = np.copy(p[0][:, idx_1])
-            p[0][:, idx_1] = np.copy(p[0][:, idx_2])
-            p[0][:, idx_2] = q1
+                # pick random indices without replacement:
+                idx_1, idx_2 = sample(range(self.n), 2)
+                if verbose: print(f"swapped: {idx_1} <-> {idx_2}")
+                # switch em
+                p[0][:, [idx_1, idx_2]] = p[0][:, [idx_2, idx_1]]
+            else: break
 
         p_H = self.hberg.mutate(p[1], mag, verbose)
 
