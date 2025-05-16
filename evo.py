@@ -4,6 +4,8 @@ import numpy as np
 from random import random, sample
 from numpy.random import choice
 
+from copy import deepcopy
+
 def evo_alg(
     p: list,
     m: int, l: int, 
@@ -62,8 +64,9 @@ def evo_alg(
                 # crossover two candidates to get the new one
                 new_candidate = crossover(*[parent[0] for parent in sample(p[:m], 2)])
             else:
-                # just mutate
-                new_candidate = mutate(sample(p[:m], 1)[0][0], mag=s)
+                # just mutate           
+                parent = deepcopy(sample(p[:m], 1)[0][0])
+                new_candidate = mutate(parent, mag=s)
 
             new_ps.append([new_candidate, 0.0])
         

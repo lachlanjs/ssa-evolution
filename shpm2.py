@@ -113,6 +113,7 @@ class Hberg(Manifold):
         self.HD_mut_mag = HD_mut_mag
 
         self.UT = Product([Euclidean(n-i) for i in range(2, n)])
+        # self.UT = Euclidean((n, n))
         self.SD = Euclidean(n-1)       
 
     def tangent_compatibility(self, p, t):
@@ -270,7 +271,7 @@ class Hberg(Manifold):
         for _ in range(MAX_EIG_SWAPS):
             if random() < self.HD_eig_swap_chance:            
                 # pick idxs
-                idx_1, idx_2 = sample(range(self.n), 2)
+                idx_1, idx_2 = sample(range(len(p[2])), 2)
                 p[2][idx_1], p[2][idx_2] = p[2][idx_2], p[2][idx_1]                        
             else: break
                     
@@ -367,7 +368,7 @@ class SHPM(Manifold):
         Q_mut_mag: float=1.0,
         Q_swap_chance: float=0.1, 
         crazy_Q_xv_chance: float = 0.05,
-        **hberg_kwargs
+        **hberg_params
     ):
 
         assert n > 0, "the dimensionality n should be positive"
@@ -377,7 +378,7 @@ class SHPM(Manifold):
         self.crazy_Q_xv_chance = crazy_Q_xv_chance
 
         self.stiefel = Stiefel(n, n)
-        self.hberg = Hberg(n, **hberg_kwargs)
+        self.hberg = Hberg(n, **hberg_params)
 
         return
     

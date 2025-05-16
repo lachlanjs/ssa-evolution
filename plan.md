@@ -13,8 +13,16 @@
             - Magnitude of mutation on Q
             - *those four would be the most important*
             - Q_swap_chance
+        - [ ] UT needs to be represented better, not as a product, but just store an nxn matrix
+        Fixed a massive bug, needed to be making deep copies of parents rather than just sending them to the mutate function
+        - [x] Have a quick look into speciation
+            Speciation could be based on the minimum distance over the different components. i.e. if the diagonals are similar, or similar $Q$.
+        - [ ] Implement speciation
+        - [ ] Add hyperparameters to study
+        - [ ] Optimize the new collection of hyperparameters
         - [ ] How many iterations compared to euclidean evolution?
         - [ ] Use this to determine suitable parameters for evolution on the manifolds
+            This in itself is an interesting contribution - how effectively can the algorithm work with a basic problem and find a randomly selected point on the manifold?
 - [ ] Write objective function for the time until divergence from a target output for the preferred initial state
     - [ ] Run it on the manifold
     - [ ] Run it on the euclidean
