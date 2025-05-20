@@ -28,6 +28,19 @@
     - [ ] Run it on the euclidean
 - [ ] Create the ssa manifold formally
 
+# speciation!!!
+
+Once again coming in clutch:
+
+https://nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf
+
+Okay so we need to track species using a list - and assign offspring more explicitly according to fitness than what is being done currently. 
+
+If this works, then this is quite a wild departure from what was being done previously.
+
+Make the point in the research report that none of the listed algorithms in Manopt work properly for disconnected manifolds!! Could demonstrate this with orthonormal manifold.
+
+
 # take a step back
 
 *why is this important?*

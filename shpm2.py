@@ -515,7 +515,7 @@ class SHPM(Manifold):
         eigen_a = []
         eigen_b = []
 
-
+        
 
         return
     
