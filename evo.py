@@ -6,14 +6,17 @@ from numpy.random import choice
 
 from copy import deepcopy
 
+from tqdm import tqdm
+
 def evo_alg(
     p: list,
     m: int, l: int, 
     # NOTE: the objective may have to include the code for assembling the phenotype from the genotype
     objective: callable, 
-    mutate: callable, crossover: callable,
+    mutate: callable, crossover: callable, same_species: callable,
     s: float = 0.1, c: float = 0.1,
-    maxiter: int=10, eps: float=1e-3
+    maxiter: int=10, eps: float=1e-3,
+    progress_bar: bool = False
 ):
     """ runs a (mu, lambda) evolutionary algorithm (elites are not protected)
 
@@ -24,6 +27,7 @@ def evo_alg(
         objective (callable): the objective function to be minimized, it is assumed that 0.0 is the minimum
         mutate (callable): the mutation operator. takes one candidate and a magnitude and produces a new one which is slightly mutated
         crossover (callable): the crossover operator. takes two candidates and produces a new one using their information
+        same_species (callable): returns true if the two input candidates are of the same species
         s (float): the mutation step size
         c (float): the crossover rate (between 0 and 1) (represents the probability at which an offspring will be made using crossover)        
         maxiter (int): the maximum number of iterations to compute
@@ -36,6 +40,7 @@ def evo_alg(
     population_objectives = []
 
     p = [[candidate, 0.0] for candidate in p]
+    n_sames = []
     
     for iter_idx in range(maxiter):
 
@@ -54,6 +59,20 @@ def evo_alg(
             break
 
         # NOTE: could add the calculation of the preference weights
+        ## species based fitness:
+        n_same_matrix = np.zeros(shape=(len(p), len(p)))
+        
+        for candidate_idx, (candidate, _) in enumerate(p):
+            # find how many in the same species:            
+
+            for candidate_idx_2, (candidate_2, _) in enumerate(p[candidate_idx + 1:]):             
+                if same_species(candidate, candidate_2):
+                    n_same_matrix[candidate_idx, candidate_idx_2] += 1
+        
+        for candidate_idx, (candidate, raw_fitness) in enumerate(p):
+            p[candidate_idx][1] = raw_fitness / (1 + np.sum(n_same_matrix[candidate_idx, :]) + np.sum(n_same_matrix[:, candidate_idx]))
+
+        n_sames.append(np.sum(n_same_matrix))
 
         # using the top [:m], generate a new list of candidates
         new_ps = []
@@ -73,7 +92,7 @@ def evo_alg(
         p=new_ps
 
 
-    return p[0][0], p[0][1], iter_idx, population_objectives # best solution, its function value, #iterations, objective values over time
+    return p[0][0], p[0][1], iter_idx, population_objectives, n_sames # best solution, its function value, #iterations, objective values over time
 
 
 def generate_candidates():

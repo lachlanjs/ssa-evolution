@@ -4,6 +4,8 @@ from pymanopt.manifolds import Product, Stiefel, Euclidean
 from pymanopt.manifolds.manifold import Manifold
 from pymanopt.tools import ndarraySequenceMixin, return_as_class_instance
 
+from scipy.optimize import linear_sum_assignment
+
 from random import random, sample
 
 def rand_norm(n: int):
@@ -13,19 +15,19 @@ def rand_norm(n: int):
 def posify(x):    
     return np.where(x < 0, np.exp(x), x + 1)
 
+def squish_distance(x):
+    return np.where(x>0, np.power(x, 2.0) / (1 + np.power(x, 2.0)), 0.0)
+
 # CONSTANTS
 B_MERGE_MAG = 1.0
 MAX_EIG_SWAPS = 5
 MAX_Q_SWAPS = 5
 
-
-
 class HbergTangentVector(ndarraySequenceMixin):
 
-    def __init__(self, n: int, t_UT, t_SD, t_HD):
+    def __init__(self, n: int, t_UT, t_HD):
         self.n = n
-        self.t_UT = t_UT
-        self.t_SD = t_SD
+        self.t_UT = t_UT        
         self.t_HD = t_HD # list of np arrays
 
     def check_compatibility(self, other):
@@ -45,8 +47,7 @@ class HbergTangentVector(ndarraySequenceMixin):
 
         return HbergTangentVector(
             self.n,
-            self.t_UT + other.t_UT, 
-            self.t_SD + other.t_SD, 
+            self.t_UT + other.t_UT,             
             [hd_self + hd_other for hd_self, hd_other in zip(self.t_HD, self.t_HD)]
         )
 
@@ -56,8 +57,7 @@ class HbergTangentVector(ndarraySequenceMixin):
 
         return HbergTangentVector(
             self.n,
-            self.t_Ut - other.t_UT,
-            self.t_SD - other.t_SD, 
+            self.t_UT - other.t_UT,            
             [hd_self - hd_other for hd_self, hd_other in zip(self.t_HD, self.t_HD)]
         )
 
@@ -65,8 +65,7 @@ class HbergTangentVector(ndarraySequenceMixin):
     def __mul__(self, scalar):
         return HbergTangentVector(
             self.n,
-            scalar * self.t_UT,
-            scalar * self.t_SD,
+            scalar * self.t_UT,            
             [scalar * hd for hd in self.t_HD]
         )
 
@@ -76,8 +75,7 @@ class HbergTangentVector(ndarraySequenceMixin):
     def __truediv__(self, scalar):
         return HbergTangentVector(
             self.n,
-            self.t_UT / scalar,
-            self.t_SD / scalar,
+            self.t_UT / scalar,            
             [hd / scalar for hd in self.t_HD]
         )        
 
@@ -85,8 +83,7 @@ class HbergTangentVector(ndarraySequenceMixin):
     def __neg__(self):
         return HbergTangentVector(
             self.n,
-            -self.t_UT,
-            -self.t_SD,
+            -self.t_UT,            
             [-hd for hd in self.t_HD]
         )
 
@@ -94,8 +91,7 @@ class Hberg(Manifold):
 
     def __init__(self, 
         n: int,
-        UT_mut_mag: float = 1.0,
-        SD_mut_mag: float = 1.0,
+        UT_mut_mag: float = 1.0,        
         HD_1x1_merge_chance: float = 0.15, 
         HD_2x2_split_chance: float = 0.15,
         HD_eig_swap_chance: float = 0.33,
@@ -105,16 +101,14 @@ class Hberg(Manifold):
         assert n > 0, "the dimensionality n should be positive"
 
         self.n = n
-        self.UT_mut_mag = UT_mut_mag
-        self.SD_mut_mag = SD_mut_mag
+        self.UT_mut_mag = UT_mut_mag        
         self.HD_1x1_merge_chance = HD_1x1_merge_chance
         self.HD_2x2_split_chance = HD_2x2_split_chance
         self.HD_eig_swap_chance = HD_eig_swap_chance
         self.HD_mut_mag = HD_mut_mag
 
-        self.UT = Product([Euclidean(n-i) for i in range(2, n)])
-        # self.UT = Euclidean((n, n))
-        self.SD = Euclidean(n-1)       
+        # self.UT = Product([Euclidean(n-i) for i in range(2, n)])        
+        self.UT = Euclidean(n, n)
 
     def tangent_compatibility(self, p, t):
 
@@ -122,18 +116,17 @@ class Hberg(Manifold):
             raise ValueError("Original dimensionality of Hberg manifold and tangent vector must match")
         
         # check hd:
-        if len(p[2]) != len(t.t_HD):
+        if len(p[1]) != len(t.t_HD):
             raise ValueError("The number of elements in the HD component of the tangent vector must match the point")
         
-        for hd_self, hd_other in zip(p[2], t.t_HD):
+        for hd_self, hd_other in zip(p[1], t.t_HD):
             if hd_self[1].shape != hd_other.shape:
                 raise ValueError("The shape of elements in the HD component of the tangent vectors must be the same")                
 
         return True
     
     def random_point(self):
-        p_UT = self.UT.random_point()
-        p_SD = self.SD.random_point()
+        p_UT = self.UT.random_point()        
 
         # construct a random set of eigenvalues for the diagonal
         # (type, values)
@@ -144,22 +137,16 @@ class Hberg(Manifold):
             p_HD.append([e_type, np.random.normal(0.0, 1.0, size=(e_type,))])
             d_idx += e_type
 
-        return (p_UT, p_SD, p_HD)    
+        return (p_UT, p_HD)    
     
     def assemble(self, p):
         n = self.n
 
-        T = np.zeros(shape=(self.n, self.n))
-
-        for d_idx in range(0, n-1):
-            T[d_idx][1 + d_idx] = p[1][d_idx]
-
-        for d_start_idx in range(2, n):
-            for d_idx in range(0, n-d_start_idx):
-                T[d_idx][d_start_idx + d_idx] = p[0][d_start_idx - 2][d_idx]
+        # T = np.zeros(shape=(self.n, self.n))
+        T = np.triu(p[0], k=1)                
         
         d_idx = 0
-        for hd in p[2]:
+        for hd in p[1]:
             
             if hd[0] == 1:  # real
                 # add eigenvalue to the diagonal
@@ -168,7 +155,7 @@ class Hberg(Manifold):
                 # ensure that the value opposite the superdiagonal is of opposite sign
                 T[d_idx, d_idx] = -posify(hd[1][0])
                 T[d_idx + 1, d_idx + 1] = -posify(hd[1][0])
-                T[d_idx + 1, d_idx] = -1 * np.sign(p[1][d_idx]) * posify(hd[1][1])                
+                T[d_idx + 1, d_idx] = -1 * np.sign(T[d_idx][d_idx + 1]) * posify(hd[1][1])                                
 
             d_idx += hd[0]
 
@@ -177,9 +164,8 @@ class Hberg(Manifold):
     def random_tangent_vector(self, p):
         return HbergTangentVector(
             self.n,
-            self.UT.random_tangent_vector(p[0]),
-            self.SD.random_tangent_vector(p[1]),
-            [rand_norm(hd[1].size) for hd in p[2]]
+            self.UT.random_tangent_vector(p[0]),            
+            [rand_norm(hd[1].size) for hd in p[1]]
         )
     
     def exp(self, p: tuple[Manifold], t: HbergTangentVector):  
@@ -187,9 +173,8 @@ class Hberg(Manifold):
         self.tangent_compatibility(p, t)
 
         return (
-            self.UT.exp(p[0], t.t_UT),
-            self.SD.exp(p[1], t.t_SD),
-            [[p_hd[0], p_hd[1] + t_hd] for p_hd, t_hd in zip(p[2], t.t_HD)]
+            self.UT.exp(p[0], t.t_UT),            
+            [[p_hd[0], p_hd[1] + t_hd] for p_hd, t_hd in zip(p[1], t.t_HD)]
         )
     
     def mutate(self, p, mag: float, verbose: bool = False):
@@ -197,14 +182,24 @@ class Hberg(Manifold):
         # move slightly in the direction of a random tangent vector
         ## get a random tangent vector
         ## rescale for fairness
-        t = self.random_tangent_vector(p) * np.random.normal() * mag * self.HD_mut_mag   
-        p = self.exp(p, t)
+        t = self.random_tangent_vector(p) * mag
+
+        # the following is the same as exp but it rescales stuff 
+        ## p[0] = self.UT.exp(p[0], t.t_UT * self.UT_mut_mag)
+        ## p[1] = [[p_hd[0], p_hd[1] + t_hd * self.HD_mut_mag] for p_hd, t_hd in zip(p[1], t.t_HD)]
+
+        p = (
+            self.UT.exp(p[0], t.t_UT * np.random.normal() * self.UT_mut_mag * self.n),
+            [[p_hd[0], p_hd[1] + t_hd * np.random.normal() * self.HD_mut_mag] for p_hd, t_hd in zip(p[1], t.t_HD)]
+        )
+
+        # p = self.exp(p, t)
 
         # do stuff to the Hberg diagonal
         ## identify real eigenvalues which are next to eachother
         r_adj_idxs = []
-        for hd_idx, hd in enumerate(p[2][:-1]):
-            if hd[0] == 1 and p[2][hd_idx + 1][0] == 1:
+        for hd_idx, hd in enumerate(p[1][:-1]):
+            if hd[0] == 1 and p[1][hd_idx + 1][0] == 1:
                 # pair
                 r_adj_idxs.append(hd_idx)
 
@@ -216,16 +211,16 @@ class Hberg(Manifold):
                 # do the merge
                 if verbose: print("merged")
                 ## get the new values
-                d = np.abs(p[2][r_adj_idx][1][0] - p[2][r_adj_idx + 1][1][0])
+                d = np.abs(p[1][r_adj_idx][1][0] - p[1][r_adj_idx + 1][1][0])
 
-                a = 0.5 * (p[2][r_adj_idx][1][0] + p[2][r_adj_idx + 1][1][0])   # the real component
+                a = 0.5 * (p[1][r_adj_idx][1][0] + p[1][r_adj_idx + 1][1][0])   # the real component
                 b = 2.0 * np.random.normal() * mag                              # the other value
 
                 ## change the information in the first one
-                p[2][r_adj_idx][0] = 2
-                p[2][r_adj_idx][1] = np.array([a, b])
+                p[1][r_adj_idx][0] = 2
+                p[1][r_adj_idx][1] = np.array([a, b])
 
-                ## remeber the idx of the second one to delete later
+                ## remember the idx of the second one to delete later
                 del_idxs.append(r_adj_idx + 1)
                 
                 # ---
@@ -240,13 +235,13 @@ class Hberg(Manifold):
         ## NOTE: the following works because the list is in increasing order
         del_offset = 0
         for del_idx in del_idxs:
-            del p[2][del_idx - del_offset]
+            del p[1][del_idx - del_offset]
             del_offset += 1
 
         ## split apart a complex eigenvalue pair
         hd_idx = 0
-        while hd_idx < len(p[2]):
-            hd = p[2][hd_idx]
+        while hd_idx < len(p[1]):
+            hd = p[1][hd_idx]
             if hd[0] == 1:
                 hd_idx += 1
                 continue
@@ -258,10 +253,10 @@ class Hberg(Manifold):
                 real_2 = hd[1][0] + np.random.normal() * mag
                 
                 # change the information of the first
-                p[2][hd_idx] = [1, np.array([real_1])]
+                p[1][hd_idx] = [1, np.array([real_1])]
     
                 # insert the second
-                p[2].insert(hd_idx + 1, [1, np.array([real_2])])
+                p[1].insert(hd_idx + 1, [1, np.array([real_2])])
     
                 hd_idx += 1 # NOTE: I think...              
 
@@ -271,34 +266,61 @@ class Hberg(Manifold):
         for _ in range(MAX_EIG_SWAPS):
             if random() < self.HD_eig_swap_chance:            
                 # pick idxs
-                idx_1, idx_2 = sample(range(len(p[2])), 2)
-                p[2][idx_1], p[2][idx_2] = p[2][idx_2], p[2][idx_1]                        
+                idx_1, idx_2 = sample(range(len(p[1])), 2)
+                p[1][idx_1], p[1][idx_2] = p[1][idx_2], p[1][idx_1]
             else: break
                     
         return p
+    
+    def get_eigenspectrum(self, p):
+
+        """ extract eigenvectors from the hessenberg matrix diagonal
+        """
+
+        eigs_real = []
+        eigs_comp = []
+
+        d_idx = 0
+        for hd_idx, hd in enumerate(p[1]):
+
+            if p[1][hd_idx][0] == 1: # real
+                eigs_real.append(hd[1][0])
+                d_idx += 1
+            else:                
+                im = np.sqrt(np.abs(hd[1][1] * p[0][d_idx, d_idx + 1]))
+                # print(f"hd: {hd}, im: {im}")
+                eigs_comp.append(hd[1][0] + im * 1j)
+                eigs_comp.append(hd[1][0] - im * 1j)
+                d_idx += 2
+
+        # print(f"eigs_real: {eigs_real}")
+        # print(f"eigs_comp: {eigs_comp}") 
+
+        return np.array(eigs_real + eigs_comp)
+    
+    # helper
+    def create_HD_str(self, p_hd):
+        HD_str = []
+        HD_idxs = []
+        for hd_idx, hd in enumerate(p_hd):
+            if hd[0] == 1:
+                HD_str.append(1)
+                HD_idxs.append(hd_idx)
+            else:
+                HD_str.append(2)
+                HD_str.append(0)
+                HD_idxs.append(hd_idx)
+                HD_idxs.append(hd_idx)
+
+        return HD_str, HD_idxs
 
     def crossover(self, p_a: tuple[Manifold], p_b: tuple[Manifold], verbose: bool=False):
 
         HD_c = []
-        d_idx = 0        
+        d_idx = 0                
 
-        def create_HD_str(p_hd):
-            HD_str = []
-            HD_idxs = []
-            for hd_idx, hd in enumerate(p_hd):
-                if hd[0] == 1:
-                    HD_str.append(1)
-                    HD_idxs.append(hd_idx)
-                else:
-                    HD_str.append(2)
-                    HD_str.append(0)
-                    HD_idxs.append(hd_idx)
-                    HD_idxs.append(hd_idx)
-
-            return HD_str, HD_idxs
-
-        HD_a_str, HD_a_idxs = create_HD_str(p_a[2])
-        HD_b_str, HD_b_idxs = create_HD_str(p_b[2])
+        HD_a_str, HD_a_idxs = self.create_HD_str(p_a[1])
+        HD_b_str, HD_b_idxs = self.create_HD_str(p_b[1])
 
         while d_idx < self.n:    
             
@@ -307,37 +329,68 @@ class Hberg(Manifold):
             
             if HD_a_str[d_idx] == 0:
                 # have to pick b
-                HD_c.append(p_b[2][hd_b_idx])
-                d_idx += p_b[2][hd_b_idx][0]
+                HD_c.append(p_b[1][hd_b_idx])
+                d_idx += p_b[1][hd_b_idx][0]
             elif HD_b_str[d_idx] == 0:
                 # have to pick a
-                HD_c.append(p_a[2][hd_a_idx])
-                d_idx += p_a[2][hd_a_idx][0]                 
+                HD_c.append(p_a[1][hd_a_idx])
+                d_idx += p_a[1][hd_a_idx][0]                 
             elif HD_a_str[d_idx] == 1 and HD_b_str[d_idx] == 1:
                 # take the mean
-                HD_c.append((1, 0.5 * (p_a[2][hd_a_idx][1] + p_b[2][hd_b_idx][1])))
+                HD_c.append((1, 0.5 * (p_a[1][hd_a_idx][1] + p_b[1][hd_b_idx][1])))
                 d_idx += 1                
             elif HD_a_str[d_idx] == 2 and HD_b_str[d_idx] == 2:
                 # take the mean
-                HD_c.append((2, 0.5 * (p_a[2][hd_a_idx][1] + p_b[2][hd_b_idx][1])))
+                HD_c.append((2, 0.5 * (p_a[1][hd_a_idx][1] + p_b[1][hd_b_idx][1])))
                 d_idx += 2                
             else:                    
                 # pick one at random
                 if random() < 0.5:
                     # pick a
-                    HD_c.append(p_a[2][hd_a_idx])
-                    d_idx += p_a[2][hd_a_idx][0]                    
+                    HD_c.append(p_a[1][hd_a_idx])
+                    d_idx += p_a[1][hd_a_idx][0]
                 else:
                     # pick b
-                    HD_c.append(p_b[2][hd_b_idx])
-                    d_idx += p_b[2][hd_b_idx][0]                    
+                    HD_c.append(p_b[1][hd_b_idx])
+                    d_idx += p_b[1][hd_b_idx][0]                    
 
         return (
-            self.UT.pair_mean(p_a[0], p_b[0]),
-            self.SD.pair_mean(p_a[1], p_b[1]),
+            self.UT.pair_mean(p_a[0], p_b[0]),            
             HD_c
         )
     
+    def speciation_distance(self, p_a, p_b):
+
+        # distance between upper triangular components
+        ## NOTE: this thing appears to scale with n
+        UT_dis = np.linalg.norm(np.triu(p_a[0], k=1) - np.triu(p_b[0], k=1)) / self.n
+
+        # distance between diagonal components
+        # if the diagonal component does not match, then add 1
+        # if the diagonal component does match, then add a f
+        HD_a_str, HD_a_idxs = self.create_HD_str(p_a[1])
+        HD_b_str, HD_b_idxs = self.create_HD_str(p_b[1])
+
+        d_idx = 0
+        HD_dis = 0.0
+        while d_idx < self.n:
+            if HD_a_str[d_idx] != HD_b_str[d_idx]:
+                HD_dis += 1.0
+            else:
+                HD_a_idx = HD_a_idxs[d_idx]
+                HD_b_idx = HD_b_idxs[d_idx]
+
+                if HD_a_str[d_idx] == 0:
+                    HD_dis += squish_distance(np.abs(p_a[1][HD_a_idx][1][1] - p_b[1][HD_b_idx][1][1]))
+                else:
+                    HD_dis += squish_distance(np.abs(p_a[1][HD_a_idx][1][0] - p_b[1][HD_b_idx][1][0]))
+            
+            d_idx += 1
+
+        HD_dis /= self.n
+
+        return UT_dis, HD_dis
+
     # abstract method joy...    
     def inner_product(self, p, t_a: HbergTangentVector, t_b: HbergTangentVector):
 
@@ -368,6 +421,9 @@ class SHPM(Manifold):
         Q_mut_mag: float=1.0,
         Q_swap_chance: float=0.1, 
         crazy_Q_xv_chance: float = 0.05,
+        Q_sep: float = 1.0,
+        UT_sep: float = 1.0,
+        HD_sep: float = 1.0,
         **hberg_params
     ):
 
@@ -376,6 +432,10 @@ class SHPM(Manifold):
         self.Q_mut_mag = Q_mut_mag
         self.Q_swap_chance = Q_swap_chance
         self.crazy_Q_xv_chance = crazy_Q_xv_chance
+
+        self.Q_sep = Q_sep
+        self.UT_sep = UT_sep
+        self.HD_sep = HD_sep
 
         self.stiefel = Stiefel(n, n)
         self.hberg = Hberg(n, **hberg_params)
@@ -424,6 +484,40 @@ class SHPM(Manifold):
         p_H = self.hberg.crossover(p_a[1], p_b[1])
 
         return (p_Q, p_H)
+    
+    def Q_distance(self, p_a, p_b):
+
+        eigs = np.linalg.eigvals(p_a[0].T @ p_b[0])
+
+        Q_dis = np.linalg.norm(np.angle(eigs))
+
+        return Q_dis
+
+    def same_species(self, p_a, p_b):
+
+        eigs = np.linalg.eigvals(p_a[0].T @ p_b[0])
+
+        Q_dis = np.linalg.norm(np.angle(eigs) / np.pi)
+
+        UT_dis, HD_dis = self.hberg.speciation_distance(p_a[1], p_b[1])
+
+        if Q_dis > self.Q_sep:
+            return False
+        if UT_dis > self.UT_sep:
+            return False
+        if HD_dis > self.HD_sep:
+            return False
+        
+        return True
+    
+    def same_species_eigen(self, p_a, p_b):
+
+        eigen_a = []
+        eigen_b = []
+
+
+
+        return
     
     # abstract method joy...    
     def inner_product(self, p, t_a, t_b):
