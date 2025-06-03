@@ -1,12 +1,200 @@
 import numpy as np
 
 
-from random import random, sample
-from numpy.random import choice
+from random import random, sample, choice
+# from numpy.random import choice
 
 from copy import deepcopy
 
 from tqdm import tqdm
+
+def find_species(
+    candidate, 
+    reps: dict, 
+    same_species: callable
+):    
+
+    for s_idx, rep in reps.items():
+        if same_species(candidate, reps): return s_idx
+
+    return -1 # new species required
+
+def rank_mapping(population):
+
+    """ this function creates a rank ordering of the candidates based on their raw fitness
+
+    Returns:
+        dict: a dict keyed by (species_idx, candidate_idx) which yields that members rank
+    """
+
+    # dict is keyed by species and then by index
+    collapse = []
+    for species_idx, species in population.items():
+        collapse += [
+            (species_idx, candidate_idx, candidate, fitness) 
+             for candidate_idx, (candidate, fitness) 
+             in enumerate(species)
+        ]
+        
+    # create mapping 
+    collapse.sort(key= lambda elt: elt[3])
+
+    rank_mapping = dict(
+        ((species_idx, candidate_idx), fitness_rank)
+        for fitness_rank, (species_idx, candidate_idx, _, _) in enumerate(collapse)
+    )    
+
+    return rank_mapping
+
+def evo_alg_speciated(
+    seed, # initial candidate
+    population_size: int,    
+    objective: callable, 
+    mutate: callable, crossover: callable, 
+    same_species: callable,
+    get_norm_mapping: callable = None,
+    r: float = 0.3, s: float = 0.1, c: float = 0.3,
+    maxiter: int=10, eps: float=1e-3,
+    progress_bar: bool = False
+):
+    
+    # NOTE: add species population sizes from each iteration
+    
+    # create initial population from the initial candidate
+    population = {0: [[deepcopy(seed), 0.0]]}
+    raw_fitnesses = []
+
+    reps = {0: population[0][0]}
+
+    next_species_idx = 1
+    idx = 0
+    while idx < population_size - 1:
+        
+        # select a random member:
+        s_idx = choice(population.keys())
+        parent = deepcopy(choice(population[s_idx]))
+
+        offspring = mutate(parent, s)
+
+        # find which species it belongs to:
+        offspring_s_idx = find_species(offspring, reps, same_species)
+
+        if offspring_s_idx == -1: # next species
+            population[next_species_idx] = [[offspring, 0.0]]
+            reps[next_species_idx] = offspring
+            next_species_idx += 1
+        else: # existing species
+            population[offspring_s_idx].append([offspring, 0.0])
+
+        idx += 1
+
+    for iter_idx in range(maxiter):
+
+        # evalaute fitness of population members
+        # also adjust fitnesses based on the size of each species    
+        raw_fitnesses_ = []
+        for species_idx, species in population.items():
+            species_size = len(species)
+            for candidate_idx, (candidate, _) in enumerate(species):
+                fitness = objective(candidate)
+                species[candidate_idx][1] = fitness
+                raw_fitnesses_.append(fitness)
+
+        # save raw fitnesses 
+        raw_fitnesses.append(raw_fitnesses)
+
+        # check if any have reached the solution:
+        # NOTE fill this in optionally
+        
+        # adjust fitnesses through optional normalisation
+        if get_norm_mapping:
+            norm_mapping = get_norm_mapping(population)
+
+            population = {
+                species_idx: [
+                    [candidate, norm_mapping[(species_idx, candidate_idx)]]
+                    for candidate_idx, (candidate, _) in species
+                ]
+                for species_idx, species in population.items()
+            }
+        
+        # divide by the number of candidates in each species:
+        population = {
+            species_idx: [
+                [candidate, fitness / len(species)]
+                for candidate_idx, (candidate, fitness) in species
+            ]
+            for species_idx, species in population.items()
+        }
+
+        # calculate the mean adjusted fitness
+        mean_adj_fitness = 0.0
+        total = 0
+        for species in population.values():
+            for _, fitness in species:
+                mean_adj_fitnes += fitness
+                total += 1
+
+        mean_adj_fitness /= total
+
+        # calculate the new number of members of each species:
+        species_N_offspring = {
+            species_idx: sum([fitness for _, fitness in species]) / len(species)
+            for species_idx, species in population
+        }
+        N_sum = sum(N_offspring.values())
+        species_N_offspring = {
+            species_idx: int(np.round((x * population_size) / N_sum))
+            for species_idx, x in species_N_offspring.items()
+        }
+        
+        
+
+        # create the new population:
+        ## only keep the top r quantile
+        r_quantiles = {
+            species_idx: np.quantile([fitness for _, fitness in species], 1.0-r)
+            for species_idx, species in population
+        }
+        population = {
+            species_idx: [
+                elt for elt in species if elt[1] >= r_quantiles[species_idx]
+                for species_idx, species in population
+            ]
+        }
+
+        ## choose representatives for each species:
+        reps = {
+            species_idx: choice(species)[0]
+            for species_idx, species in population.items()
+        }
+        new_population = {}
+        for species_origin_idx, N_offspring in species_N_offspring.items():
+            species_origin = population[species_origin_idx]            
+            for offspring_idx in range(N_offspring):
+
+                new_candidate = crossover(*[parent[0] for parent in sample(species_origin, k=2)])\
+                    if random() < c else mutate(sample(species_origin, k=1)[0][0], s)
+                
+                # go through species in order to see which one the new candidate belongs to
+                new_species_idx = find_species(new_candidate, reps, same_species)
+
+                if new_species_idx == -1:
+                    # create a new species
+                    new_population[next_species_idx] = [(new_candidate, 0.0)]
+                    next_species_idx += 1
+                    continue
+
+                if new_species_idx in new_population.keys():
+                    new_population[new_species_idx].append([new_candidate, 0.0])
+                else:
+                    new_population[new_species_idx] = [(new_candidate, 0.0)]                
+                
+
+        # replace old population with new
+        population = new_population
+                
+    return population, raw_fitnesses, 
 
 def evo_alg(
     p: list,
