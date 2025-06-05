@@ -509,12 +509,15 @@ class SHPM(Manifold):
             return False
         
         return True
+
+    def eigenspectrum_distance:
+
+        return
     
     def same_species_eigen(self, p_a, p_b):
 
         eigen_a = []
         eigen_b = []
-
         
 
         return

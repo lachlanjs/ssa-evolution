@@ -57,3 +57,5 @@ Again, the point is not to find the biologically plausible optimisation scheme w
 
 More interesting objective functions than the toy ones studied could include ability to stay stable under certain hebbian learning regimes, which is famously good at blowing things up to infinity - what if that is only true for certain circuits? That would be a really hard thing to find a differentiable objective for.
 
+# wtf
+This is unrelated but I just found [https://andrewcharlesjones.github.io/journal/natural-gradients.html](this) article on the natural gradient:
